@@ -13,7 +13,7 @@ sys_exit(void)
   int n;
   argint(0, &n);
   kexit(n);
-  return 0;  // not reached
+  return 0; // not reached
 }
 
 uint64
@@ -47,15 +47,19 @@ sys_sbrk(void)
   argint(1, &t);
   addr = myproc()->sz;
 
-  if(t == SBRK_EAGER || n < 0) {
-    if(growproc(n) < 0) {
+  if (t == SBRK_EAGER || n < 0)
+  {
+    if (growproc(n) < 0)
+    {
       return -1;
     }
-  } else {
+  }
+  else
+  {
     // Lazily allocate memory for this process: increase its memory
     // size but don't allocate memory. If the processes uses the
     // memory, vmfault() will allocate it.
-    if(addr + n < addr)
+    if (addr + n < addr)
       return -1;
     myproc()->sz += n;
   }
@@ -69,13 +73,15 @@ sys_pause(void)
   uint ticks0;
 
   argint(0, &n);
-  if(n < 0)
+  if (n < 0)
     n = 0;
   acquire(&tickslock);
   ticks0 = ticks;
   backtrace();
-  while(ticks - ticks0 < n){
-    if(killed(myproc())){
+  while (ticks - ticks0 < n)
+  {
+    if (killed(myproc()))
+    {
       release(&tickslock);
       return -1;
     }
@@ -110,22 +116,26 @@ sys_uptime(void)
 uint64
 sys_sigalarm(void)
 {
-  struct proc* m = myproc();
+  struct proc *p = myproc();
+  p->exec_fn = 0; // disallow calls to fn
+  struct proc *m = myproc();
 
   int ticks;
   argint(0, &ticks);
-  
+
   uint64 handler;
   argaddr(1, &handler);
 
-  if(ticks == 0 && handler == 0){
+  if (ticks == 0 && handler == 0)
+  {
     // reset all alarm components
     m->alarm_tick = 0;
     m->handler = 0;
     m->ticks_passed = 0;
     return 0;
   }
-  else {
+  else
+  {
     m->alarm_tick = ticks;
     m->handler = (uint64 *)handler;
     m->ticks_passed = 0;
@@ -133,8 +143,12 @@ sys_sigalarm(void)
   }
 }
 
-uint64 
+uint64
 sys_sigreturn(void)
 {
-  return 0;
+  struct proc *p = myproc();
+  *p->trapframe = p->trapframe2;
+  uint64 saved_a0 = p->trapframe2.a0; // nonmutable
+  p->exec_fn = 1;                     // allow fn to be called again
+  return saved_a0;
 }
