@@ -112,7 +112,7 @@ sys_recv(void)
 
   // fetch earliest packet, else wait for one
   struct chan *chan = ports[dport];
-  printf("s_rLOCK\n");
+  printf("sys_recv: aL(cL)\n");
   acquire(&chan->lock);
   r = chan->r;
     // Sleep for packet
@@ -121,10 +121,10 @@ sys_recv(void)
       release(&chan->lock);
       return -1;
     }
-    printf("recv sleeping\n");
+    printf("sys_recv: sleep\n");
     sleep(&chan->r, &chan->lock);
   }
-  printf("recv woke\n");
+  printf("sys_recv: woke up\n");
   char *pack = chan->packets[r++ % MAX_PACKS]->buffer;
 
   uint64 size = sizeof(struct packet);
@@ -135,10 +135,11 @@ sys_recv(void)
     release(&chan->lock);
     return -1;
   }
-  printf("free pack\n");
+  printf("sys_recv: copied to user\n");
   kfree(pack);
   r = ((r + 1) % 16);
   release(&chan->lock);
+  printf("sys_recv: rL(cL)\n");
   return stat;
 }
 
@@ -237,6 +238,7 @@ sys_send(void)
     return -1;
   }
   printf("sys_send: e1k_t()\n");
+  printf("sys_send: s: %d sp: %d d: %d dp:%d\n", ip->ip_src, udp->sport, ip->ip_dst, udp->dport);
   e1000_transmit(buf, total);
 
   return 0;
@@ -258,7 +260,7 @@ ip_rx(char *buf, int len)
   struct ip *ip = (struct ip *)(eth + 1);
   struct udp *udp = (struct udp *)(ip + 1);
   int dport = ntohs(udp->dport);
-  printf("ip_rx: dport %d\n", dport);
+    printf("ip_rx: s: %d sp: %d d: %d dp:%d\n", ip->ip_src, udp->sport, ip->ip_dst, udp->dport);
   struct chan *chan = ports[dport];
   // if this is a UDP packet, and the dport has a channel
   if(ntohs(ip->ip_p) == IPPROTO_UDP){

@@ -116,6 +116,7 @@ e1000_transmit(char *buf, int len)
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_EOP);
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_RS);
   regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE; // next descriptor to write to 
+  printf("e1k_t: rL(e1kL)\n");
   release(&e1000_lock);
   return 0;
 
