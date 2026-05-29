@@ -154,22 +154,27 @@ e1000_recv(void)
     printf("e1k_r: aL(e1kL)\n");
     acquire(&e1000_lock);
     struct rx_desc *descriptor = &rx_ring[(regs[E1000_RDT] + 1) % RX_RING_SIZE];
+
     if((descriptor->status & E1000_RXD_STAT_DD) == 0)
       break; 
+    
     if((buf = (uint64)kalloc()) == 0)
       break;
       
     printf("e1k_r: net_rx(),rL(e1k)\n");
     release(&e1000_lock);
     net_rx((char *)descriptor->addr, descriptor->length);
-    printf("e1k_r: aL(e1kL)\n");
+    printf("e1k_r: ret from net_rx(), aL(e1kL)\n");
+    acquire(&e1000_lock);
+    kfree((void *)descriptor->addr);
     descriptor->addr = (uint64)buf;
     descriptor->length = 0;
     descriptor->status = 0; // reset status
 
     regs[E1000_RDT] = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    printf("e1k_r: rL(e1kL)\n");
+    release(&e1000_lock);
   }
-  printf("e1k_r: rL(e1kL)\n");
   release(&e1000_lock);
 }
 
