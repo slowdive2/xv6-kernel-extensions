@@ -108,10 +108,8 @@ sys_recv(void)
   argaddr(2, &sport);
   argaddr(3, &bufaddr);
   argint(4, &maxlen);
-  printf("sys_recv: %d vs %d \n", dport, ntohs(dport));
   // fetch earliest packet, else wait for one
   struct chan *chan = ports[dport];
-  printf("sys_recv: aL(cL)\n");
   acquire(&chan->lock);
     // Sleep for packet
   while(chan->r == chan->w){
@@ -119,10 +117,8 @@ sys_recv(void)
       release(&chan->lock);
       return -1;
     }
-    printf("sys_recv: sleep\n");
     sleep(&chan->r, &chan->lock);
   }
-  printf("sys_recv: woke up r: %d w: %d\n", chan->r, chan->w);
   char *pack = chan->packets[chan->r % MAX_PACKS].buffer;
 
   struct eth *eth = (struct eth *)pack;
@@ -133,11 +129,8 @@ sys_recv(void)
   // int p_dport = ntohs(udp->dport);
   short p_sport = ntohs(udp->sport);
   uint32 p_shost = ntohl(ip->ip_src);
-  printf("RECV: SHOST %d : %d\n", p_shost, dport);
   char *p_buf = (char *)(udp + 1);
   int p_len = ntohs(udp->ulen) - sizeof(struct udp);
-  
-  release(&chan->lock);
 
   if(p_len > maxlen)
     p_len = maxlen;
@@ -145,20 +138,22 @@ sys_recv(void)
   // ip->ip_len = htons(sizeof(struct ip) + sizeof(struct udp) + len);
   // if(copyout(p->pagetable, dport, (char *)&p_dport, sizeof(int)) < 0)
   //   goto fail;
+
+  chan->packets[chan->r % MAX_PACKS].buffer = 0;
+  chan->r++;
+  release(&chan->lock);
   if(copyout(p->pagetable, src, (char *)&p_shost, sizeof(p_shost)) < 0)
     goto fail;
   if(copyout(p->pagetable, sport, (char *)&p_sport, sizeof(p_sport)) < 0)
     goto fail;
   if(copyout(p->pagetable, bufaddr, p_buf, p_len) < 0)
     goto fail;
-  
-  chan->packets[chan->r % MAX_PACKS].buffer = 0;
-  chan->r++;
-  printf("sys_recv: rL(cL)\n");
+
   kfree(pack);
   return p_len;
 
   fail:
+  release(&chan->lock);
   printf("sys_recv copyout fail: rL(cL)\n");
   kfree(pack);
   return -1;
@@ -205,7 +200,6 @@ in_cksum(const unsigned char *addr, int len)
 uint64
 sys_send(void)
 {
-  printf("sys_send: entry\n");
   struct proc *p = myproc();
   int sport;
   int dst;
@@ -258,9 +252,8 @@ sys_send(void)
     printf("sys_send: copyin failed\n");
     return -1;
   }
-  printf("sys_send: e1k_t()\n");
-  printf("sys_send: s: %d sp: %d d: %d dp:%d\n", ntohl(ip->ip_src), ntohs(udp->sport), ntohl(ip->ip_dst), ntohs(udp->dport));
   e1000_transmit(buf, total);
+  // e1k_t eventually: free(buf)
 
   return 0;
 }
@@ -268,7 +261,6 @@ sys_send(void)
 void
 ip_rx(char *buf, int len)
 {
-  printf("ip_rx: entry\n");
   // don't delete this printf; make grade depends on it.
   static int seen_ip = 0;
   if(seen_ip == 0)
@@ -278,34 +270,39 @@ ip_rx(char *buf, int len)
   // type = ETHTYPE_IP
   struct eth *eth = (struct eth *)buf;
   struct ip *ip = (struct ip *)(eth + 1);
+
+  if(ip->ip_p != IPPROTO_UDP){
+    kfree(buf);
+    return;
+  }
+
   struct udp *udp = (struct udp *)(ip + 1);
   int dport = ntohs(udp->dport);
   struct chan *chan = ports[dport];
   if(chan == 0){
-    printf("ip_rx: unbound\n");
     goto fail;
   }
   // if this is a UDP packet, and the dport has a channel
-  if(ip->ip_p == IPPROTO_UDP){
-    printf("ip_rx: recvd udp src %d : %d\n", ntohl(ip->ip_src), dport);
-    printf("ip_rx: aL(cl)\n");
     acquire(&chan->lock);
-
 
     if(chan->w - chan->r < 16) // # of packets in queue is the val between w and r
     {
       chan->packets[chan->w % MAX_PACKS].buffer = buf;
       chan->w++;
-      printf("ip_rx: wake(cR)\n");
       wakeup(&chan->r);
+
+      release(&chan->lock);
+      return;
     }
-    printf("ip_rx: rL(cL)\n");
+    else{
     release(&chan->lock);
-    return;
-  }
+    goto fail;
+    }
+
   // else drop packet; sys_recv() should kfree(buf) if above executes
   fail:
   kfree(buf);
+  return;
 }
 
 //
@@ -319,7 +316,6 @@ void
 arp_rx(char *inbuf)
 {
   static int seen_arp = 0;
-  printf("arp_rx: entry\n");
   if(seen_arp){
     kfree(inbuf);
     return;
@@ -350,7 +346,6 @@ arp_rx(char *inbuf)
   arp->sip = htonl(local_ip);
   memmove(arp->tha, ineth->shost, ETHADDR_LEN);
   arp->tip = inarp->sip;
-  printf("arp_rx: e1k_t()\n");
   e1000_transmit(buf, sizeof(*eth) + sizeof(*arp));
 
   kfree(inbuf);
@@ -363,17 +358,14 @@ net_rx(char *buf, int len)
   void *buf2 = kalloc();
   memmove(buf2, (void *)buf, len); // e1000_r will overwrite *buf after net_rx returns, overwriting valuable parts of
   struct eth *eth = (struct eth *) buf2;
-  printf("net_rx: entry\n");
   if(len >= sizeof(struct eth) + sizeof(struct arp) &&
      ntohs(eth->type) == ETHTYPE_ARP){
-      printf("net_rx: arp_rx()\n");
     arp_rx(buf2);
   } else if(len >= sizeof(struct eth) + sizeof(struct ip) &&
      ntohs(eth->type) == ETHTYPE_IP){
-      printf("net_rx: ip_rx()\n");
     ip_rx(buf2, len);
   } else { // empty
-    printf("rcvd empty\n");
+    kfree(buf2);
     kfree(buf);
   }
 }
