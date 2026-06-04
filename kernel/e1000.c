@@ -104,8 +104,7 @@ e1000_transmit(char *buf, int len)
   //
   // free if E1000_TXD_STAT_DD
   // called via arp_rx, sys_send
-  printf("e1k_t: entry\n");
-  printf("e1k_t: aL(e1kL)\n");
+
   acquire(&e1000_lock);
   if((tx_ring[regs[E1000_TDT]].status & (E1000_TXD_STAT_DD)) == 0) // return -1 if full (STAT_DD not yet set by hw)
     return -1;
@@ -116,7 +115,7 @@ e1000_transmit(char *buf, int len)
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_EOP);
   tx_ring[regs[E1000_TDT]].cmd |= (E1000_TXD_CMD_RS);
   regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE; // next descriptor to write to 
-  printf("e1k_t: rL(e1kL)\n");
+
   release(&e1000_lock);
   return 0;
 
@@ -149,22 +148,18 @@ e1000_recv(void)
   // note: called via interrupthandler
   //
   while(1){
-    printf("e1k_r: entry\n");
     uint64 buf;
-    printf("e1k_r: aL(e1kL)\n");
     acquire(&e1000_lock);
     struct rx_desc *descriptor = &rx_ring[(regs[E1000_RDT] + 1) % RX_RING_SIZE];
 
     if((descriptor->status & E1000_RXD_STAT_DD) == 0)
       break; 
-    
+
     if((buf = (uint64)kalloc()) == 0)
       break;
       
-    printf("e1k_r: net_rx(),rL(e1k)\n");
     release(&e1000_lock);
     net_rx((char *)descriptor->addr, descriptor->length);
-    printf("e1k_r: ret from net_rx(), aL(e1kL)\n");
     acquire(&e1000_lock);
     kfree((void *)descriptor->addr);
     descriptor->addr = (uint64)buf;
@@ -172,7 +167,6 @@ e1000_recv(void)
     descriptor->status = 0; // reset status
 
     regs[E1000_RDT] = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
-    printf("e1k_r: rL(e1kL)\n");
     release(&e1000_lock);
   }
   release(&e1000_lock);
@@ -185,7 +179,5 @@ e1000_intr(void)
   // without this the e1000 won't raise any
   // further interrupts.
   regs[E1000_ICR] = 0xffffffff;
-  printf("e1k_i: entry\n");
-  printf("e1k_i: e1k_r()\n");
   e1000_recv();
 }
