@@ -125,37 +125,52 @@ static void
 read_acquire_inner(struct rwspinlock *rwlk)
 {
   // Replace this with your implementation.
-  while(rwlk->w != 0){
-    continue;
+  while(1){
+    acquire(&rwlk->l);
+    if(rwlk->w == 0 && rwlk->ww == 0){
+      rwlk->r++;
+      release(&rwlk->l);
+      break;
+    }
+    release(&rwlk->l);
   }
-  __atomic_add_fetch (rwlk->r, 1, 1);
 }
 
 static void
 read_release_inner(struct rwspinlock *rwlk)
 {
   // Replace this with your implementation.
-  __atomic_sub_fetch (rwlk->r, 1, 1);
+    acquire(&rwlk->l);
+    rwlk->r--;
+    release(&rwlk->l);
 }
 
 static void
 write_acquire_inner(struct rwspinlock *rwlk)
 {
   // Replace this with your implementation.
-
-  __atomic_add_fetch (rwlk->w, 1, 1);
-
-  while(rwlk->r != 0){
-    continue;
+  acquire(&rwlk->l);
+  rwlk->ww++;
+  release(&rwlk->l);
+  while(1){
+    acquire(&rwlk->l);
+    if((rwlk->w == 0) && (rwlk->r == 0)){
+      rwlk->w++;
+      rwlk->ww--;
+      release(&rwlk->l);
+      break;
+    }
+    release(&rwlk->l);
   }
-  
 }
 
 static void
 write_release_inner(struct rwspinlock *rwlk)
 {
   // Replace this with your implementation.
-  __atomic_sub_fetch (rwlk->w, 1, 1);
+  acquire(&rwlk->l);
+  rwlk->w--;
+  release(&rwlk->l);
 }
 
 void
@@ -191,6 +206,11 @@ initrwlock(struct rwspinlock *rwlk)
 {
   // Replace this with your implementation.
   initlock(&rwlk->l, "rwlk");
+  acquire(&rwlk->l);
+  rwlk->w = 0;
+  rwlk->ww = 0;
+  rwlk->r = 0;
+  release(&rwlk->l);
 }
 
 // Test rwspinlock implementation.
