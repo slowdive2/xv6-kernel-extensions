@@ -16,5 +16,8 @@ struct spinlock {
 struct rwspinlock {
   // Replace this with your implementation.
   struct spinlock l;
+
+  uint r;
+  uint w;
 };
 #endif
