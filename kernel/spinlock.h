@@ -19,5 +19,6 @@ struct rwspinlock {
 
   uint r;
   uint w;
+  uint ww;
 };
 #endif
