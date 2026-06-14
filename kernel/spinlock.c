@@ -377,6 +377,7 @@ sys_rwlktest()
   write_acquire(&l2);
   read_acquire(&l);
 
+
   rwspinlock_test_step(++step, "releasing multiple locks");
 
   write_release(&l2);

@@ -131,13 +131,8 @@ steal_memlist(int id)
     if(j == id)
       continue;
 
-    if(id < j){
-      acquire(&kmem[id].lock);
-      acquire(&kmem[j].lock);
-    } else {
-      acquire(&kmem[j].lock);
-      acquire(&kmem[id].lock);
-    }
+    acquire(&kmem[id].lock);
+    acquire(&kmem[j].lock);
 
     if(kmem[j].count > 1){
       uint64 stln = kmem[j].count;
