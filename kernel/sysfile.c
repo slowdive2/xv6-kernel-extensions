@@ -301,14 +301,31 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
+/*
+follow a symlink up to 10 times, else err
+
+general idea of open(f):
+  if type == SYMLINK:
+    while(type == SYMLINK) {
+      if(depth == 10)
+        err;
+      path = inode(path)->data
+      depth++
+    }
+    ... proceed with opening as file (ftype = T_FIILE)
+
+*/
+
+
 uint64
 sys_open(void)
 {
+  char path2[MAXPATH];
   char path[MAXPATH];
   int fd, omode;
   struct file *f;
-  struct inode *ip;
-  int n;
+  struct inode *ip, *next_ip;
+  int n, depth;
 
   argint(1, &omode);
   if((n = argstr(0, path, MAXPATH)) < 0)
@@ -339,6 +356,23 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  if(ip->type == T_SYMLINK){
+    depth = 0;
+    while(type == SYMLINK){
+      if(depth == 10){
+        end_op();
+        return -1;
+      }
+    }
+    // if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
+    if(next_ip = readi(ip, 0, (uint64)path2, 0, sizeof(path2)) != sizeof(path2)){
+      end_op();
+      return -1;
+    }
+    ip = next_ip;
+    depth++;
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -504,6 +538,15 @@ sys_pipe(void)
   return 0;
 }
 
+/* 
+general idea of symlink:
+  create new file (inode) that holds a pathname , this pathname is whatever we want the file to link to
+
+pseudocode:
+create_ip(path, type=symlink)
+write_ip_data(targetpath)
+return ip
+*/
 uint64
 sys_symlink(void)
 { // nameiparent ?
@@ -525,9 +568,11 @@ sys_symlink(void)
     return -1;
   }
   ilock(ip);
-  ip->type = T_SYMLINK;
   //   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-  iwrite(ip, 0, (uint64)target, 0, sizeof(target))
+  if(writei(ip, 0, (uint64)&target, 0, sizeof(target)) != sizeof(target)){
+    end_op();b
+    return -1;
+  }
   iunlock(ip);
   end_op();
   return 0;
