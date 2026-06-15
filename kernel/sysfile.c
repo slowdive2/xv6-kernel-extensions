@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "assert.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -262,12 +263,13 @@ create(char *path, short type, short major, short minor)
     return 0;
   }
 
+
   if((ip = ialloc(dp->dev, type)) == 0){
     iunlockput(dp);
     return 0;
   }
-
   ilock(ip);
+  
   ip->major = major;
   ip->minor = minor;
   ip->nlink = 1;
@@ -324,7 +326,7 @@ sys_open(void)
   char path[MAXPATH];
   int fd, omode;
   struct file *f;
-  struct inode *ip, *next_ip;
+  struct inode *ip;
   int n, depth;
 
   argint(1, &omode);
@@ -332,7 +334,7 @@ sys_open(void)
     return -1;
 
   begin_op();
-
+  
   if(omode & O_CREATE){
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
@@ -344,6 +346,7 @@ sys_open(void)
       end_op();
       return -1;
     }
+  
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
@@ -360,20 +363,31 @@ sys_open(void)
 
   if(ip->type == T_SYMLINK){
     depth = 0;
-    while(type == SYMLINK){
+    while(ip->type == T_SYMLINK){
+      if(omode & O_NOFOLLOW)
+        break;
+
       if(depth == 10){
+        iunlockput(ip);
         end_op();
         return -1;
       }
-    }
     // if(readi(ip, 0, (uint64)pa, offset+i, n) != n)
-    if(next_ip = readi(ip, 0, (uint64)path2, 0, sizeof(path2)) != sizeof(path2)){
+    if(readi(ip, 0, (uint64)path2, 0, sizeof(path2)) != sizeof(path2)){
+      iunlockput(ip);
       end_op();
       return -1;
     }
-    ip = next_ip;
+    iunlockput(ip);
+    ip = namei(path2);
+    if(ip == 0){
+      end_op();
+      return -1;
+    }
+    ilock(ip);
     depth++;
-  }
+    }
+  } 
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
@@ -382,6 +396,7 @@ sys_open(void)
     end_op();
     return -1;
   }
+
 
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
@@ -400,7 +415,6 @@ sys_open(void)
 
   iunlock(ip);
   end_op();
-
   return fd;
 }
 
@@ -553,6 +567,7 @@ sys_symlink(void)
   char path[MAXPATH];
   char target[MAXPATH];
   struct inode *ip;
+  char path2[MAXPATH];
   int n;
 
   if((n = argstr(0, target, MAXPATH)) < 0)
@@ -567,13 +582,17 @@ sys_symlink(void)
     end_op();
     return -1;
   }
-  ilock(ip);
+  // ip->lock is held during create
+
   //   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
   if(writei(ip, 0, (uint64)&target, 0, sizeof(target)) != sizeof(target)){
-    end_op();b
+    iunlock(ip);
+    end_op();
     return -1;
   }
-  iunlock(ip);
+  iupdate(ip);
+  readi(ip, 0, (uint64)path2, 0, sizeof(path2));
+  iunlockput(ip);
   end_op();
   return 0;
 }
