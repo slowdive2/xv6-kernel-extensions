@@ -515,27 +515,58 @@ sys_pipe(void)
 //     struct file *f;     // pointer to the mapped file
 // };
 // set protection flags for a VMA
-static int protm(struct vma *vma){
-  int len = vma->len;
-  int prot = vma->prot;
-  return -1;
-}
 
+
+
+//TODO : how to locate the vma for an address ? 
 // void *mmap(void *addr, size_t len, int prot, int flags,
 //            int fd, off_t offset);
 
 /*
+mmmap:
+
 given fd, fetch inode: (f=myproc()->ofile[fd])
 read inode length ; if len > inode length , len = inode length
 
 start addr + len is our vma region
-for each page in vma, set to NOACCESS , fault handler should deal w/ this
 
+fault hander:
+calculate vma_offset from vma start, read in inode( (va - va_addr)+offset )
+protm, unprot it
+
+
+use readi, mappages, kalloc
+informally:
+
+user requests map
+
+validate args
+
+find_free_vma
+
+occupy up to start_addr + len of vma (dont set any custom page vals, !PTE_V -> fault handler checks vma region)
+
+load vma metadata
+
+fdup(fd)       increase refct, we need this in case a fault happens after close(fd), else we cant read in further data
+
+return start addr 
 
 */
 
 
-
+/*
+some invariants:
+every fault addr in userspace either belongs to a VMA or is a segfault (we dont have cow)
+the fault handler only needs the vma struct to reconstruct the correct page/permission bits
+every vma must outlive its fd (ensures by fdup)
+MMAP never allocs or loads file-related pages
+usertrap handles ALL interactions with memory/disk on mmap/munmap's behalf
+the only direct modifications to struct vma are via mmap,munmap
+page creation happens only in fault path
+no two valid VMAs overlap
+vma is a 1:1 mapping of a virtual range to a file range : file_offset = (fault_addr - vma_start) + vma_offset
+*/
 uint64
 sys_mmap(void)
 {
@@ -555,15 +586,18 @@ sys_mmap(void)
   // 
 
   p = myproc();
-  p->ofile
-
-  if((addr = kalloc()) == 0)
-    return -1;
+  if(f = p->ofile[fd]) {
+    vma->f = filedup(f);
+  }
+  else {
+    return -1; // invalid fd
+  }
 
   // have we allocated 16 VMAs ?
+  free_idx = -1; 
   for(int i = 0; i < 16; i++) {
     if (p->vmas[i].valid == 0) {
-      free_idx = 1;
+      free_idx = i;
       break;
     }
   }
@@ -574,15 +608,15 @@ sys_mmap(void)
 
   vma = p->vmas[free_idx];
   vma->valid = 1;
-  vma->addr = (uint64)addr;
+  // vma->addr = find_free_region()l
   vma->len = len;
   vma->prot = prot;
   vma->flags = flags;
-
 }
 
 uint64
 sys_munmap(void)
 {
+  ...fileclose(vma->f);
   return -1;
 }
