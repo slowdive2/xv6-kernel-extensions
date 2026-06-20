@@ -504,10 +504,76 @@ sys_pipe(void)
   return 0;
 }
 
+
+// struct vma {
+//     int valid;          // In use ?
+//     uint64 addr;        // Starting VA
+//     uint64 len;         
+//     int prot;           // PROT_READ | PROT_WRITE
+//     int flags;          // MAP_SHARED | MAP_PRIVATE
+//     int offset;         // (should be 0)
+//     struct file *f;     // pointer to the mapped file
+// };
+// set protection flags for a VMA
+static int protm(struct vma *vma){
+  int len = vma->len;
+  int prot = vma->prot;
+  return -1;
+}
+
+// void *mmap(void *addr, size_t len, int prot, int flags,
+//            int fd, off_t offset);
+
+/*
+given fd, fetch inode:
+read inode length ; if len > inode length , len = inode length
+
+start addr + len is our vma region
+for each page in vma, set to NOACCESS , fault handler should deal w/ this
+
+
+*/
+
+
+
 uint64
 sys_mmap(void)
 {
-  return -1;
+  void *addr, *taddr;
+  int free_idx, len, prot, flags, fd, offset;
+  struct vma *vma;
+  struct proc *p;
+  // params
+  // argaddr(0, &taddr); // taddr will always be 0 in tests
+  taddr = 0;
+  argint(1, &len);
+  argint(2, &prot);
+  argint(3, &flags);
+  argint(4, &fd);
+  argint(5, &offset);
+  // 
+
+  p = myproc();
+  
+  if((addr = kalloc()) == 0)
+    return -1;
+
+  // have we allocated 16 VMAs ?
+  for(int i = 0; i < 16; i++) {
+    if (p->vmas[i].valid == 0) {
+      free_idx = 1;
+      break;
+    }
+  }
+  if(free_idx == -1) {
+    panic("mmap: no free vma");
+    return -1;
+  }
+
+  vma = p->vmas[free_idx];
+  vma->valid = 1;
+  vma->addr = (uint64)addr;
+
 }
 
 uint64
