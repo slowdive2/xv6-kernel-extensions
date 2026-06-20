@@ -104,4 +104,15 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct vma vmas[16];
+};
+
+struct vma {
+    int valid;          // In use ?
+    uint64 addr;        // Starting VA
+    uint64 len;         
+    int prot;           // PROT_READ | PROT_WRITE
+    int flags;          // MAP_SHARED | MAP_PRIVATE
+    int offset;         // (should be 0)
+    struct file *f;     // pointer to the mapped file
 };
