@@ -98,9 +98,9 @@ usertrap(void)
       iunlock(vma->f->ip);
 
       int prot = 0;
-      if (vma->prot & PROT_READ)  {prot |= PTE_R; printf("r set\n");}
-      if (vma->prot & PROT_WRITE) {prot |= PTE_W; printf("w set\n");}
-      if (vma->prot & PROT_EXEC)  {prot |= PTE_X; printf("x set\n");}
+      if (vma->prot & PROT_READ)  prot |= PTE_R;
+      if (vma->prot & PROT_WRITE) prot |= PTE_W;
+      if (vma->prot & PROT_EXEC)  prot |= PTE_X;
 
       prot |= PTE_U;
 

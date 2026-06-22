@@ -654,23 +654,41 @@ sys_munmap(void)
   argaddr(0, &va);
   argint(1, &len);
   int npages = len / PGSIZE;
+
   if((vma = fetch_vma(va)) == 0)
     return -1;
-  
+
   for(int i = 0; i < npages; i++){
-    if(*walk(p->pagetable, va, 0) & PTE_V){
-      uint64 i_off = (va - vma->addr) + vma->offset;
-      writei(vma->f->ip, 0, walk(va), i_off, PGSIZE);
+
+    if(*walk(p->pagetable, va, 0) & PTE_V){ // faulted on - either og contents or modified
+      if(vma->flags | MAP_SHARED){
+        uint64 i_off = (va - vma->addr) + vma->offset;
+        pa = walkaddr(p->pagetable, va);
+        begin_op();
+        ilock(vma->f->ip);
+        writei(vma->f->ip, 0, pa, i_off, PGSIZE);
+        iunlock(vma->f->ip);
+        end_op();
+      }
     }
+
     uvmunmap(p->pagetable, va, PGSIZE, 1);
     va += PGSIZE;
+
   }
+
   if(va == vma->addr)
     vma->addr += len;
-  vma->len -= len;
 
-  fileclose(vma->f);
-  return -1;
+  vma->len -= len;
+  vma->offset -= len;
+  if(vma->len == 0){
+    fileclose(vma->f);
+    vma->addr = 0;
+    vma->valid = 0;
+  }
+
+  return 0;
 }
 
 // struct vma {
