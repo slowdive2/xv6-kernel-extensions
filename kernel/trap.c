@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -34,89 +36,90 @@ trapinithart(void)
 // called from, and returns to, trampoline.S
 // return value is user satp for trampoline.S to switch to.
 //
+
 uint64
 usertrap(void)
 {
   int which_dev = 0;
+  struct vma *vma;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  // send interrupts and exceptions to kerneltrap(),
-  // since we're now in the kernel.
   w_stvec((uint64)kernelvec);  //DOC: kernelvec
 
   struct proc *p = myproc();
-  
-  // save user program counter.
-  p->trapframe->epc = r_sepc();
-  
-  if(r_scause() == 8){
-    // system call
 
+  p->trapframe->epc = r_sepc();
+
+  if(r_scause() == 8){
     if(killed(p))
       kexit(-1);
 
-    // sepc points to the ecall instruction,
-    // but we want to return to the next instruction.
     p->trapframe->epc += 4;
-
-    // an interrupt will change sepc, scause, and sstatus,
-    // so enable only now that we're done with those registers.
     intr_on();
-
     syscall();
+
   } else if((which_dev = devintr()) != 0){
     // ok
+
   } else if (r_scause() == 13 || r_scause() == 15) {
+
     uint64 va = PGROUNDDOWN(r_stval());
+    printf("fault va=%p stval=%p scause=%lu\n",
+           (void*)va, (void*)r_stval(), r_scause());
 
-    for (int i = 0; i < MAX_VMA; i++) {
-      struct vma *vma = &p->vmas[i];
+    int is_vma = 0;
 
-      if (vma->valid &&
-          va >= vma->addr &&
-          va < vma->addr + vma->len) {
+    if((vma = fetch_vma(va)) != 0){
+      is_vma = 1;
 
-        if (ismapped(p->pagetable, va))
-          panic("usertrap: mmap vma faulted on already mapped page");
+      pte_t *pte = walk(p->pagetable, va, 0);
 
-        pte_t *pte = walk(p->pagetable, va, 0);
+      if (pte == 0)
+        panic("usertrap: stval points to 0");
 
-        if (pte == 0)
-          panic("usertrap: stval points to 0");
+      if ((*pte & PTE_V))
+        panic("usertrap: remap");
 
-        if (!(*pte & PTE_V)) {
-          uint64 i_off = (va - vma->addr) + vma->offset;
-          uint64 mem;
+      uint64 i_off = (va - vma->addr) + vma->offset;
+      uint64 mem;
 
-          if ((mem = (uint64)kalloc()) == 0)
-            panic("usertrap: out of memory for vma");
+      if ((mem = (uint64)kalloc()) == 0)
+        panic("usertrap: out of memory for vma");
 
-          ilock(vma->f->ip);
+      ilock(vma->f->ip);
 
-          if (PGSIZE > (vma->f->ip->size - i_off))
-            memset((void *)mem, 0, PGSIZE);
+      if (PGSIZE > (vma->f->ip->size - i_off))
+        memset((void *)mem, 0, PGSIZE);
 
-          // Read into kernel memory, then map into userspace.
-          readi(vma->f->ip, 0, mem, i_off, PGSIZE);
+      readi(vma->f->ip, 0, mem, i_off, PGSIZE);
 
-          iunlock(vma->f->ip);
+      iunlock(vma->f->ip);
 
-          if(mappages(p->pagetable, va, PGSIZE, mem, vma->prot) < 0) {
-            panic("usertrap: mmap mappages");
-          }
-          break;
-        }
-        else
-          panic("usertrap: faulted on valid vma page");
+      int prot = 0;
+      if (vma->prot & PROT_READ)  {prot |= PTE_R; printf("r set\n");}
+      if (vma->prot & PROT_WRITE) {prot |= PTE_W; printf("w set\n");}
+      if (vma->prot & PROT_EXEC)  {prot |= PTE_X; printf("x set\n");}
+
+      prot |= PTE_U;
+
+      if(mappages(p->pagetable, va, PGSIZE, mem, prot) < 0) {
+        panic("usertrap: mmap mappages");
+      }
+
+      printf("mapped va=%p pa=%p\n", (void *)va, (void *)mem);
+    }
+
+    if(!is_vma) {
+      printf("vmfault");
+
+      if(vmfault(p->pagetable, r_stval(),
+                (r_scause() == 13) ? 1 : 0) != 0){
+        // page fault on lazily-allocatead page
       }
     }
 
-    if (vmfault(p->pagetable, r_stval(),
-                (r_scause() == 13) ? 1 : 0) != 0) {
-      // page fault on lazily-allocatead page
-    }
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
@@ -126,19 +129,14 @@ usertrap(void)
   if(killed(p))
     kexit(-1);
 
-  // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
 
   prepare_return();
 
-  // the user page table to switch to, for trampoline.S
   uint64 satp = MAKE_SATP(p->pagetable);
-
-  // return to trampoline.S; satp value in a0.
   return satp;
 }
-
 //
 // set up trapframe and control registers for a return to user space
 //
