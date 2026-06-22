@@ -685,3 +685,19 @@ procdump(void)
     printf("\n");
   }
 }
+
+struct vma *
+fetch_vma(uint64 va){
+    struct proc *p = myproc();
+
+    for (int i = 0; i < MAX_VMA; i++) {
+      struct vma *vma = &p->vmas[i];
+
+      if (vma->valid &&
+          va >= vma->addr &&
+          va < vma->addr + vma->len) {
+        return vma;
+      }
+    }
+    return 0;
+}

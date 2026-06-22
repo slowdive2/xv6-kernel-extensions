@@ -583,6 +583,7 @@ page creation happens only in fault path
 no two valid VMAs overlap
 vma is a 1:1 mapping of a virtual range to a file range : file_offset = (fault_addr - vma_start) + vma_offset
 */
+
 uint64
 sys_mmap(void)
 {
@@ -600,16 +601,18 @@ sys_mmap(void)
   p = myproc();
 
   if(!(prot & PROT_READ || prot & PROT_WRITE)) { // 2 possible prots
+    printf("no prot\n");
     return -1;
   }
 
   if(!(flags & MAP_SHARED || flags & MAP_PRIVATE)) { // 2 possible flags
+    printf("no flag\n");
     return -1;
   }
 
   // have we allocated 16 VMAs ?
   free_idx = -1; 
-  for(int i = 0; i < 16; i++) {
+  for(int i = 0; i < MAX_VMA; i++) {
     if (p->vmas[i].valid == 0) {
       free_idx = i;
       break;
@@ -625,7 +628,7 @@ sys_mmap(void)
   if(fd < 0 || fd >= NOFILE || !(f = p->ofile[fd]))
     return -1;
 
-  if(offset > f->ip->size  || len > f->ip->size - offset )
+  if(offset > f->ip->size  /*|| len > f->ip->size - offset*/)
     return -1;
 
   len = PGROUNDUP(len);
@@ -637,12 +640,59 @@ sys_mmap(void)
   vma->prot = prot;
   vma->flags = flags;
   vma->valid = 1;
+  printf("mmap done for [%d]\n", free_idx);
   return vma->addr;
 }
 
 uint64
 sys_munmap(void)
 {
-  ...fileclose(vma->f);
+  struct proc *p = myproc();
+  struct vma *vma;
+  uint64 va, pa;
+  int len;
+  argaddr(0, &va);
+  argint(1, &len);
+  int npages = len / PGSIZE;
+  if((vma = fetch_vma(va)) == 0)
+    return -1;
+  
+  for(int i = 0; i < npages; i++){
+    if(*walk(p->pagetable, va, 0) & PTE_V){
+      uint64 i_off = (va - vma->addr) + vma->offset;
+      writei(vma->f->ip, 0, walk(va), i_off, PGSIZE);
+    }
+    uvmunmap(p->pagetable, va, PGSIZE, 1);
+    va += PGSIZE;
+  }
+  if(va == vma->addr)
+    vma->addr += len;
+  vma->len -= len;
+
+  fileclose(vma->f);
   return -1;
 }
+
+// struct vma {
+//     int valid;          // In use ?
+//     uint64 addr;        // Starting VA
+//     uint64 len;         
+//     int prot;           // PROT_READ | PROT_WRITE
+//     int flags;          // MAP_SHARED | MAP_PRIVATE
+//     int offset;         // (should be 0)
+//     struct file *f;     // pointer to the mapped file
+// };
+// set protection flags for a VMA
+
+// prob check dirty bits
+// find VMA  
+  
+// for each page in range:  
+// pa = va_2_pa(addr)
+// write pa contents to file offset  
+// uvmunmap(page, free=1)  
+  
+// update VMA metadata  
+  
+// if VMA.len == 0:
+// fileclose()

@@ -115,3 +115,5 @@ struct proc {
   char name[16];               // Process name (debugging)
   struct vma vmas[16];
 };
+
+struct vma *fetch_vma(uint64 va);
