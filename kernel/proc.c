@@ -300,7 +300,6 @@ kfork(void)
     npvma->prot = pvma->prot;
     npvma->flags = pvma->flags;
     npvma->offset = pvma->offset;
-    printf("kfork: filedup\n");
     npvma->f = filedup(pvma->f);
     npvma->child_vma = 1;
     npvma->valid = 1;
@@ -352,7 +351,7 @@ kexit(int status)
 
 
   for(int vi = 0; vi < MAX_VMA; vi++){
-  if(!p->vmas[vi].valid || p->vmas[vi].child_vma)
+  if(!p->vmas[vi].valid)
     continue;
 
   vma = &p->vmas[vi];
@@ -384,20 +383,18 @@ kexit(int status)
 
         iunlock(vma->f->ip);
         end_op();
-
-        printf("kexit: munmap wrote back shared pg successfully\n");
       }
     }
 
     uvmunmap(p->pagetable, addr, 1, 1);
     addr += PGSIZE;
   }
-
-  vma->len = 0;
-  vma->addr = 0;
   vma->valid = 0;
 }  
 
+for(int i = 0; i < MAX_VMA; i++){
+  p->vmas[i].valid = 0;
+} // remove later, sanity check
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
