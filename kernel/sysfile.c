@@ -672,9 +672,6 @@ sys_munmap(void)
   if((vma = fetch_vma(va)) == 0)
     return -1;
 
-  if(vma->child_vma)
-    return 0;
-
   addr = va;
 
   for(int i = 0; i < npages; i++){
