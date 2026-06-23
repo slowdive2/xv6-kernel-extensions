@@ -46,7 +46,7 @@ usertrap(void)
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  w_stvec((uint64)kernelvec);  //DOC: kernelvec
+  w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
 
@@ -64,69 +64,62 @@ usertrap(void)
     // ok
 
   } else if (r_scause() == 13 || r_scause() == 15) {
+    if(p->killed)
+      kexit(-1);
 
     uint64 va = PGROUNDDOWN(r_stval());
-    printf("fault va=%p stval=%p scause=%lu\n",
-           (void*)va, (void*)r_stval(), r_scause());
-
-    int is_vma = 0;
 
     if((vma = fetch_vma(va)) != 0){
-      is_vma = 1;
+
+      // write to RO, read from WO
+      if ((r_scause() == 15 && !(vma->prot & PROT_WRITE)) ||
+          (r_scause() == 13 && !(vma->prot & PROT_READ))) {
+        setkilled(p);
+        goto done;
+      }
 
       pte_t *pte = walk(p->pagetable, va, 0);
 
-      if (pte == 0)
-        panic("usertrap: stval points to 0");
-
-      if ((*pte & PTE_V))
-        panic("usertrap: remap");
+      // permission violation on mapped page
+      if (pte && (*pte & PTE_V)) {
+        setkilled(p);
+        goto done;
+      }
 
       uint64 i_off = (va - vma->addr) + vma->offset;
       uint64 mem;
 
       if ((mem = (uint64)kalloc()) == 0)
         panic("usertrap: out of memory for vma");
-      
-      begin_op();
-      ilock(vma->f->ip);
-
-      uint64 n = 0;
 
       memset((void *)mem, 0, PGSIZE);
 
+      begin_op();
+      ilock(vma->f->ip);
+
       if(i_off < vma->f->ip->size){
-        n = vma->f->ip->size - i_off;
+        uint64 n = vma->f->ip->size - i_off;
         if(n > PGSIZE)
           n = PGSIZE;
-
         if(readi(vma->f->ip, 0, mem, i_off, n) != n)
           panic("mmap readi");
       }
+
       iunlock(vma->f->ip);
       end_op();
 
-      int prot = 0;
+      int prot = PTE_U;
       if (vma->prot & PROT_READ)  prot |= PTE_R;
       if (vma->prot & PROT_WRITE) prot |= PTE_W;
       if (vma->prot & PROT_EXEC)  prot |= PTE_X;
 
-      prot |= PTE_U;
-
-      if(mappages(p->pagetable, va, PGSIZE, mem, prot) < 0) {
+      if(mappages(p->pagetable, va, PGSIZE, mem, prot) < 0)
         panic("usertrap: mmap mappages");
-      }
 
-      printf("mapped va=%p pa=%p\n", (void *)va, (void *)mem);
-    }
+      sfence_vma();
 
-    if(!is_vma) {
-      printf("vmfault occurred\n");
-
-      if(vmfault(p->pagetable, r_stval(),
-                (r_scause() == 13) ? 1 : 0) != 0){
-        // page fault on lazily-allocatead page
-      }
+    } else {
+      setkilled(p);
     }
 
   } else {
@@ -135,6 +128,7 @@ usertrap(void)
     setkilled(p);
   }
 
+done:
   if(killed(p))
     kexit(-1);
 

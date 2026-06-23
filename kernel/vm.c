@@ -455,6 +455,12 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   uint64 mem;
   struct proc *p = myproc();
 
+  for(int i = 0; i < MAX_VMA; i++){
+    struct vma *vma = &p->vmas[i];
+    if(va >= vma->addr &&
+       va < vma->addr + vma->len)
+       return 0;
+  }
   if (va >= p->sz)
     return 0;
   va = PGROUNDDOWN(va);

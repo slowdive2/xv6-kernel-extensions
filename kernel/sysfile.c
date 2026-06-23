@@ -644,7 +644,6 @@ sys_mmap(void)
   if ((prot & PROT_WRITE) && (flags & MAP_SHARED) && !f->writable)
     return -1;
 
-  printf("mmap: filedup\n");
   vma->f = filedup(f);
   vma->offset = offset;
   vma->len = len;
@@ -652,7 +651,6 @@ sys_mmap(void)
   vma->flags = flags;
   vma->child_vma = 0;
   vma->valid = 1;
-  printf("mmap done for [%d]\n", free_idx);
   return vma->addr;
 }
 
@@ -671,6 +669,12 @@ sys_munmap(void)
 
   if((vma = fetch_vma(va)) == 0)
     return -1;
+  
+  int j = 0;
+  for(int i = 0; i < MAX_VMA; i++){
+    if(p->vmas[i].valid)
+      j++;
+  }
 
   addr = va;
 
@@ -678,14 +682,9 @@ sys_munmap(void)
     pte_t *pte = walk(p->pagetable, addr, 0);
 
     if(pte == 0){
-      printf("munmap pte 0\n");
       addr += PGSIZE;
       continue;
     }
-
-    printf("%d\n", (*pte & PTE_V) != 0);
-    printf("munmap iteration %d: addr = %p, pte = %p\n",
-           i, (void *)addr, (void *)pte);
 
     if(!(*pte & PTE_V)){
       uvmunmap(p->pagetable, addr, 1, 1);
@@ -695,8 +694,6 @@ sys_munmap(void)
 
     if(!(vma->child_vma) && vma->flags & MAP_SHARED /*&& (*pte & PTE_W)*/){
       uint64 i_off = (addr - vma->addr) + vma->offset;
-
-      printf("i_off: %d\n", (int)i_off);
 
       pa = PTE2PA(*pte);
 
@@ -720,9 +717,6 @@ sys_munmap(void)
         iunlock(vma->f->ip);
         end_op();
       }
-
-      printf("munmap: wrote back page %d out of %d pages\n",
-             i + 1, npages);
     }
 
     uvmunmap(p->pagetable, addr, 1, 1);
@@ -732,14 +726,12 @@ sys_munmap(void)
   if(va == vma->addr)
     vma->addr += len;
 
-  vma->len -= len;
-
-  if(vma->len == 0){
+  if(vma->len == len){
     fileclose(vma->f);
-    vma->addr = 0;
     vma->valid = 0;
   }
-
+  vma->len -= len;
+  vma->offset += len;
   return 0;
 }
 
